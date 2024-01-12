@@ -71,15 +71,22 @@ If you want boot with a already existing block partition on your system look up 
 #### 2.2.1 Basics
 1. Run `# virt-manager`
 2. Create new VM
+
 ![](img/create-new-vm.png)
 3. Local Install Media or Existing disk image (in case u already have image)
+
 ![](img/windows-iso.png)
+
 4. Allocate RAM and CPU
+
 ![](img/cpu-ram-allocation.png)
+
 5. `[Step for Fresh Install]` Create Disk, this is where you select where to create your VM harddisk, or select already existing one. U can always resize this so no need to worry about size, i recommend 100gb for start
+
 ![](img/create-disk.png)
 
 7. Name the vm win11, or anything else but keep note, this will be used later. `Check customize before install` and finish.
+
 ![](img/customize-before-install.png)
 
 This is where things differ in my guide, DO NOT delete anything that was added yet!
@@ -87,16 +94,21 @@ Most guides tell u to start attaching your pcie devices etc from here. We will i
 
 #### 2.2.2 Customize before install
 1. Go to overview -> Chipset -> `Q35` and Firmware > `uefi ending with secboot.fd `very important for win11
+
 ![](img/uefi-secboot.png)
 2. Replace driver for our VM hard disk with scsi, for much much better performance
+
 ![](img/scsi-driver.png)
 3. NIC -> Device model -> virtio `for much better networking driver`
+
 ![](img/nic-virtio.png)
 > In case u can't proceed windows setup screen without internet then set the Device model as e1000e and setup windows first. After that shutdown you can change the driver back to virtio. This might be to you important because to install virtio drivers we need to be booted inside windows first.
 4. Add TPM
+
 ![](img/tpm.png)
 5. Mount [VirtIO driver iso](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D)
 	Add Hardware -> Storage -> Select custom storage -> 
+  
 ![](img/virtio-drivers.png)
 Make sure all 3 disks are enabled in boot options, win11 disk, win11 install disk and virtio disk
 > Tip: You can come back to this wizard screen anytime u want just open VM and `View -> Details `
