@@ -7,7 +7,7 @@ Note that this is by no means a beginner's guide. It makes the following assumpt
 1. You have hardware that supports virtualization and IOMMU.
 2. You have the necessary packages for virtualizing using kvm/qemu. 
 3. You have a working/running VM on kvm/qemu (or you at least know how to set one up).
-It therefore won't walk you through the basic steps of creating the VM itself. However, [this tutorial by bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial) covers this process adequately. I highly recommend you look at it if you need that kind of guidance. Specifically, [this section][actual-vm-setup] explains step-by-step what you should to in virt-manager.
+Basic primer with screenshots is provided here However, [this tutorial by bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial) covers this process adequately. I highly recommend you look at it if you need that kind of guidance. Specifically, [this section][actual-vm-setup] explains step-by-step what you should to in virt-manager.
 Note that I am running an Nvidia card with the proprietary driver, and so some settings are specific to my case e.g. GPU drivers. The same principles also apply for AMD cards, although in this case there is also [this video by risingprismtv](https://www.youtube.com/watch?v=3BxAaaRDEEw)
 
 ## 1. Enabling iommu
@@ -67,7 +67,8 @@ Each and every component will have to be passed to ur VM later so make sure they
 ### 2.2. Setting up the VM
 There are many ways to do this, I'm going to do fresh install, if u have a old image of win11 vm the process is almost similar minus the windows install step.
 
-If you want boot with a already existing block partition on your system look up the guides attached above they cover it.
+>If you want boot with a already existing block partition on your system look up the guides attached above they cover it.
+
 #### 2.2.1 Basics
 1. Run `# virt-manager`
 2. Create new VM
@@ -89,44 +90,53 @@ If you want boot with a already existing block partition on your system look up 
 
 ![](img/customize-before-install.png)
 
-This is where things differ in my guide, DO NOT delete anything that was added yet!
-Most guides tell u to start attaching your pcie devices etc from here. We will instead complete make some changes get windows installed first and then do the rest in next section.
+This is where things differ in my guide, DO NOT delete anything that was added yet! (talking about spice display etc etc)
+Most guides tell u to start attaching your pcie devices etc from here. We will instead complete the windows instllation, make some changes and then do the rest in next section.
 
 #### 2.2.2 Customize before install
-1. Go to overview -> Chipset -> `Q35` and Firmware > `uefi ending with secboot.fd `very important for win11
+
+1. Go to overview -> Chipset -> `Q35` and Firmware > `uefi ending with secboot.fd `very important for win11 `since win11 needs secure boot.`
 
 ![](img/uefi-secboot.png)
-2. Replace driver for our VM hard disk with scsi, for much much better performance
+
+2. Replace hard disk driver for our VM with scsi, for much much better performance. `Refer arch wiki to know more`
 
 ![](img/scsi-driver.png)
+
 3. NIC -> Device model -> virtio `for much better networking driver`
 
 ![](img/nic-virtio.png)
+
 > In case u can't proceed windows setup screen without internet then set the Device model as e1000e and setup windows first. After that shutdown you can change the driver back to virtio. This might be to you important because to install virtio drivers we need to be booted inside windows first.
 4. Add TPM
 
 ![](img/tpm.png)
+
 5. Mount [VirtIO driver iso](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D)
 	Add Hardware -> Storage -> Select custom storage -> 
   
 ![](img/virtio-drivers.png)
-Make sure all 3 disks are enabled in boot options, win11 disk, win11 install disk and virtio disk
+Make sure all 3 disks are checked in boot options, win11 parition disk, win11 installation disk and virtio drivers disk.
+
 > Tip: You can come back to this wizard screen anytime u want just open VM and `View -> Details `
 
-Click Begin Installation, at format page, u wont see any disks, its important to click on load drivers and browse to virtio cd rom and and select voscsi/amd64 and click install, which will enable windows to communicate with SCSI controller of our disk.
+Now start the VM and Click Begin Installation, in windows format page, u wont see any disks, its important to click on load drivers and browse to virtio cd rom and and select voscsi/amd64 and click install, which will enable windows to communicate with SCSI controller of our disk.
 
 #### 2.2.3 Customize after install 
-> Tip: On Windows setup shift+f10 to open CMD and type `OOBE/PASSBYNRO` to skip windows setup altogether and boot directly into windows. If does not work then see above in 2.2.2 how to change Ethernet device Model
+> Tip: On Windows setup shift+f10 to open CMD and type `OOBE/PASSBYNRO` to skip windows setup altogether and boot directly into windows. If does not work then see above in 2.2.2 how to change Ethernet device model `which is a way to get networking to work with a emulated driver`
  
-After windows is installed, go to `device manager` and install ethernet drivers from `virtio CD-ROM` this is important for networking to be enabled, next shutdown VM.
+After windows is installed, open windows `device manager` and install ethernet drivers from `virtio CD-ROM` this is important for networking to be enabled and then shutdown VM.
 
 Open customize VM window, delete extra devices, spice, console, tablet, usb redirector 1 and 2.
+
+## 3. Passthrough Settings
 
 Now its time to add your pcie devices like gpu and audio etc, that we previously highlighted in iommu section
 ![](img/add-pcie-host.png)
 Next time we boot the VM it will directly be running on our monitor so we need to pass through our mouse and keyboard as well
 ![](img/add-usb-host.png)
-## 3. Passthrough Settings
+
+`After this dont boot the VM yet! we now need to unmount GPU drivers for passthrough to work, below i show how to setup hooks that will automatically unmount and remount the drivers when vm starts and shuts down`
 
 ### 3.1 Installing Hook Manager
 
@@ -163,10 +173,10 @@ The following are the functions for these directories
 | /etc/libvirt/hooks/qemu.d/$vmname/prepare/begin/* | Resources in this folder are allocated before a VM is started |
 | /etc/libvirt/hooks/qemu.d/$vmname/release/end/* | Resources in this folder are allocated after a VM has shut down |
 
-Create the sub directories above,remembering to use the name of your VM. In my case the VM name is win10, which is the default provided by virt-manager for Windows 10.
+Create the sub directories shown above, remember to replace the `win11` with name of your VM. In my case the VM name is win11.
 
 ### 3.2 Creating our Environment File
-In /etc/libvirt/hooks/ create a file called kvm.conf and let it have content in the following format:
+In /etc/libvirt/hooks/ create a file called kvm.conf and add the follwing enviorment varianbles:
 ```sh
 ## Virsh devices
 VIRSH_GPU_VIDEO=pci_0000_01_00_0
@@ -174,13 +184,13 @@ VIRSH_GPU_AUDIO=pci_0000_01_00_1
 ```
 Substitute the bus addresses for the devices in your GPU's IOMMU group. These are the addresses you get from running [check-iommu.sh](scripts/check-iommu.sh). Note the format we are using for the bus addresses. The prefix for the bus address (pci_0000...) is fixed. The rest of the address should be the device IDs of the PCI devices notated using underscores i.e. 06:00.0 becomes 06_00_0, 06:00.1 becomes 06_00_1 etc.
 
-This will act as our central config for all the hooks
+> This will act as our central config for all the hooks, the begin and end scripts are configured by the varaibles in this file.
   
 ### 3.3 Adding Hook Scripts
 We are then going to put some scripts for allocating and deallocating the appropriate resources to our VM whenever it's started or shut down. The first script is just for holding the environmental variables that we'll be using in the actual scripts. This should prevent us from unnecessarily duplicating information and also make it easier for us to make adjustments down the line. 
 
 #### 3.3.1 Creating Start Script
-Create/copy the file [**start.sh**](/scripts/begin/start.sh) at /etc/libvirt/hooks/qemu.d/$vmname/prepare/begin/
+Create/copy the file [**start.sh**](/scripts/begin/start.sh) in /etc/libvirt/hooks/qemu.d/$vmname/prepare/begin/
 ```
 echo 0 > /sys/class/vtconsole/vtcon0/bind
 echo 0 > /sys/class/vtconsole/vtcon1/bind
@@ -210,11 +220,14 @@ modprobe vfio_pci
 modprobe vfio_iommu_type1
 ```
 You may not need to unload as many nvidia drivers as I have. For example, in your case the drivers might simply be nvidia_drm, nvidia_modeset, nvidia_uvm, nvidia. If unsure, use *lsmod* to check what drivers are currently in use on your host OS e.g.
+
 ```sh
+# you can run this to see kernel modules associated with nvidia
 $ lsmod | grep -i nvidia
 ```
 
 #### 3.3.2 Create Revert Script
+This script will reload the modules after vm shutsdown so we get the linux display back.
 Create the file [**revert.sh**](scripts/end/revert.sh) at /etc/libvirt/hooks/qemu.d/$vmname/release/end
 ```sh
 #!/bin/bash
@@ -254,14 +267,18 @@ modprobe nvidia_uvm
 systemctl start sddm.service
 ```
 ## 4. Run VM
-Start the VM. The hook scripts defined above will be executed automatically as the guest OS starts. If things go well your display should turn black for a couple of seconds, then display the guest OS on your screen as if you dual booted into it.
-If you instead get stuck on the black screen without logging into the guest OS monitor the logs for the VM at /var/log/libvirt/qemu/$vm_name.log (on the host OS). This is where SSH access to your host comes in handy. An important step in your troubleshooting should be executing the hook scripts (start.sh and revert.sh) manually. Check for errors. [This guide by joeknock90](https://github.com/joeknock90/Single-GPU-Passthrough#black-screen-on-vm-activation) may be of assistance as you troubleshoot your issues.
+Start the VM. The hook scripts defined above will be executed automatically as the guest OS starts. If things go well your display should turn black for a couple of seconds, then display the guest OS on your screen as if you directly booted into a windows pc. Hoorayyyyyy
+If you instead get stuck on the black screen without logging into the guest OS monitor the logs for the VM at /var/log/libvirt/qemu/$vm_name.log (on the host OS). This is where SSH access to your host comes in handy. 
+> An important step in your troubleshooting should be executing the hook scripts (start.sh and revert.sh) manually. Check for errors. [This guide by joeknock90](https://github.com/joeknock90/Single-GPU-Passthrough#black-screen-on-vm-activation) may be of assistance as you troubleshoot your issues.
+> If you need to verify if the scripts worked after VM starts one way is to delete the start.sh and rever.sh scripts and remove your nvidia gpu pcie device along with input devices(MNK) this allows you to dummy boot the vm while staying in linux. This is something i say alot below and is what i mean when i say u can verify this by doing X
 
 ## 5. Optimizations 
 ### Setting up XML Editor
-For next section we will be editing alot of XML to gain performance. There are 2 ways to edit VM XML one is through virt-manager by enabling XML Editing in Preferences the other is running `virsh edit` command in terminal. My preferred approach is `virsh edit` so ill be talking about that
+For next section we will be editing alot of XML to gain performance. There are 2 ways to edit VM XML one is through virt-manager by enabling XML Editing in Preferences the other is running `virsh edit` command in terminal. 
+My preferred approach is `virsh edit` so ill be talking about that
 
-For easier editing u may need a cli editor, my chioce is [Micro Editor](https://micro-editor.github.io/). To Change editor used by `virsh edit` add `EDITOR=Micro` in `/etc/environment` file   
+For easier editing u may need a cli editor, my chioce is [Micro Editor](https://micro-editor.github.io/), its like code editor in terminal super helpful. 
+To Change editor used by `virsh edit` add `EDITOR=Micro` in `/etc/environment` file.
 
 Once all above is done 
 ```sh
@@ -313,28 +330,28 @@ This is the topology for my CPU as produced by the command above:
 ![](img/lstop-l.png)
 The format above can be a bit confusing due to the default display mode of the indexes. Toggle the display mode using **i** until the legend (at the bottom) shows "Indexes: Physical". The layout should become more clear. In my case it becomes this:
 ![](img/lstop.png)
-To explain a little bit, I have 16 physical cores 8P are performance cores, 8V are virtual cores assocaited with p cores and 8E Cores (PU P#16 to PU P#23). The 8P+8V cores are mainly divided into eight sets of 2 cores. Each group has its own L2 and L1 cache. However, the most important thing to pay attention here is how virtual cores and P cores are mapped to the physical core. The virtual cores (notated PU P#...) come in pairs of two i.e. *siblings*: 
+To explain a little bit, I have 16 physical cores 8(P) cores with hyper threading, 8(V) are virtual cores assocaited with p cores and 8E cores (PU P#16 to PU P#23). The 8P+8V cores are mainly divided into eight sets of 2 cores. Each group has its own L2 and L1 cache. However, the most important thing to pay attention here is how virtual cores and P cores are mapped to the physical core. The virtual cores (notated PU P#...) come in pairs of two i.e. *siblings*: 
 - PU P#0 and PU P#1 are siblings in Core P#0
 - PU P#2 and PU P#3 are siblings in Core P#4
 - PU P#4 and PU P#5 are siblings in Core P#8
 In your case it might be PU P#0 and PU P#5, so in that case your grouping should take into account the groupings.
 
-When pinning CPUs you should map siblings that are adjacent to each other and have their cached shared for max cache choerency.Here is how i did it for my processor, i leave P1V1 and P2V2 and map 6P+6V cores to my VM. 
+When pinning CPUs you should map siblings that are adjacent to each other and have their cached shared for max cache choerency.Here is how i did it for my processor, i leave P1-V1 and P2-V2 and map 6P+6V cores to my VM. 
 ```XML
 <vcpu placement="static">12</vcpu>
   <cputune>
-    <vcpupin vcpu="0" cpuset="5"/>
-    <vcpupin vcpu="1" cpuset="6"/>
-    <vcpupin vcpu="2" cpuset="7"/>
-    <vcpupin vcpu="3" cpuset="8"/>
-    <vcpupin vcpu="4" cpuset="9"/>
-    <vcpupin vcpu="5" cpuset="10"/>
-    <vcpupin vcpu="6" cpuset="11"/>
-    <vcpupin vcpu="7" cpuset="12"/>
-    <vcpupin vcpu="8" cpuset="13"/>
-    <vcpupin vcpu="9" cpuset="14"/>
-    <vcpupin vcpu="10" cpuset="15"/>
-    <vcpupin vcpu="11" cpuset="16"/>
+    <vcpupin vcpu="0" cpuset="4"/>
+    <vcpupin vcpu="1" cpuset="5"/>
+    <vcpupin vcpu="2" cpuset="6"/>
+    <vcpupin vcpu="3" cpuset="7"/>
+    <vcpupin vcpu="4" cpuset="8"/>
+    <vcpupin vcpu="5" cpuset="9"/>
+    <vcpupin vcpu="6" cpuset="10"/>
+    <vcpupin vcpu="7" cpuset="11"/>
+    <vcpupin vcpu="8" cpuset="12"/>
+    <vcpupin vcpu="9" cpuset="13"/>
+    <vcpupin vcpu="10" cpuset="14"/>
+    <vcpupin vcpu="11" cpuset="15"/>
   </cputune>
   <cpu mode="host-passthrough" check="none" migratable="off">
     <topology sockets="1" dies="1" cores="6" threads="2"/>
@@ -348,7 +365,7 @@ Hopefully now you have a clear understanding of the methodology behind CPU pinni
 
 ### 5.3 Iothreads and Iothreadpins
 
-This is very important step for increasing IO speed of our SCSI Disk
+This is important step for increasing IO speed of our SCSI Disk
 
 I build upon CPU pinning using IOthreads and IOthreadpins. According to [documentation](https://libvirt.org/formatdomain.html#iothreads-allocation):
 -  *iothreads* specifies the number of threads dedicated to performing block I/O.
@@ -357,7 +374,7 @@ I build upon CPU pinning using IOthreads and IOthreadpins. According to [documen
 
 For my CPU, which has a total of 16 cores,  12 cores are already assigned to the guest. Since for my use case I use host for nothing while the guest is running, I decided to use 2 cores for Iothread, and emulator pinning. I intentionally left 2 cores (core 0 an 1) to host, because linux kernel priortises C0 for everything else the host does, and in our setup we have set kernel paramters to priortise interuputs on 1st Core. Im not using my 8E Cores because they are slow and could lead to stutters in VM.
 
-Before the *cputune* element add an *iothreads* element and specify number of io threads. For our use VM we are using SCSI driver which can only use 1 iothread so im specifying only 1.
+Before the *cputune* element add an *iothreads* element and specify number of io threads. For our use VM we are using SCSI driver which can only use 1 iothread so im specifying only 1. `Refer wiki for more info`
 If you have multiple disks you can use multiple io threads one for each drive etc.
 
 Inside the *cpuelement* body, allocate threadpins for each *iothread* you have defined . Here is my configuration for this:
@@ -366,20 +383,20 @@ Inside the *cpuelement* body, allocate threadpins for each *iothread* you have d
 <vcpu placement="static">12</vcpu>
 <iothreads>1</iothreads>
 <cputune>
-	<vcpupin vcpu="0" cpuset="5"/>
-	<vcpupin vcpu="1" cpuset="6"/>
-	<vcpupin vcpu="2" cpuset="7"/>
-	<vcpupin vcpu="3" cpuset="8"/>
-	<vcpupin vcpu="4" cpuset="9"/>
-	<vcpupin vcpu="5" cpuset="10"/>
-	<vcpupin vcpu="6" cpuset="11"/>
-	<vcpupin vcpu="7" cpuset="12"/>
-	<vcpupin vcpu="8" cpuset="13"/>
-	<vcpupin vcpu="9" cpuset="14"/>
-	<vcpupin vcpu="10" cpuset="15"/>
-	<vcpupin vcpu="11" cpuset="16"/>
-	<emulatorpin cpuset="3-4"/>
-	<iothreadpin iothread="1" cpuset="3-4"/>
+	<vcpupin vcpu="0" cpuset="4"/>
+	<vcpupin vcpu="1" cpuset="5"/>
+	<vcpupin vcpu="2" cpuset="6"/>
+	<vcpupin vcpu="3" cpuset="7"/>
+	<vcpupin vcpu="4" cpuset="8"/>
+	<vcpupin vcpu="5" cpuset="9"/>
+	<vcpupin vcpu="6" cpuset="10"/>
+	<vcpupin vcpu="7" cpuset="11"/>
+	<vcpupin vcpu="8" cpuset="12"/>
+	<vcpupin vcpu="9" cpuset="13"/>
+	<vcpupin vcpu="10" cpuset="14"/>
+	<vcpupin vcpu="11" cpuset="15"/>
+	<emulatorpin cpuset="2-3"/>
+	<iothreadpin iothread="1" cpuset="0-3"/>
 </cputune>
 
 <cpu mode="host-passthrough" check="none" migratable="off">
@@ -408,7 +425,7 @@ So we have been using SCSI disk already but currently its not using the IOThread
     <controller type="scsi" index="0" model="virtio-scsi">
 		<address type="pci" domain="0x0000" bus="0x07" slot="0x00" function="0x0"/>
 		<driver queues="8" iothread="1"/>
-	</controller>
+    </controller>
 ```
 
 ### 5.5 CPU Governor And Frequency
@@ -471,19 +488,19 @@ For scripts to work you need to add two varaibles to `kvm.conf`
 TOTAL_CORES='0-23' # total cores in your system
 HOST_CORES='2-3,16-23' # cores to be given to host when VM starts   
 ```
-> Explanation: In my case i have 24 total cores so total core is 0-23 for me. `Kernel commands index cores from 0 not 1 unlike virt XML` 
+> Explanation: In my case i have 24 total cores so total core is 0-23 for me.
 >
-> For my guest im pinning 5-16 cores so that means i will have 1-4 and 17-24 cores left for host so thats whats written here but 0 indexd.
+> For my guest im pinning 4-15 cores so that means i will have 0-3 and 16-23 cores left for host so thats whats written here.
 
 Test core isolation while VM is running
 ```sh
 cat /run/systemd/system.control/user.slice.d/50-AllowedCPUs.conf
-
 ```
 
-Note: I personally tired core isolation and i had bad time with it so incase it doesnt work for you, remove the script. Other steps are more crucial than isolation specially if you are running only one guest and not doing anything demanding on host
+~~Note: I personally tired core isolation and i had bad time with it so incase it doesnt work for you, remove the script. Other steps are more crucial than isolation specially if you are running only one guest and not doing anything demanding on host~~.
 
 ### 5.7 Enabling invtsc 
+The sections ahead are easier to follow and are minaly configurations for extras.
 
 I came accross this on [reddit](https://www.reddit.com/r/VFIO/comments/asf3tg/drastic_stuttering_reduction_using_invtsc_feature/) and it really helped my performance so i would recommend u try this as well. This might also help hide VM detection
 
@@ -601,7 +618,7 @@ To do this, one needs to modify the XML of the virtual machine to replicate thei
 9. Maagu Karuri VFIO Single GPU Passthrough Guide [Maagu Karuri](https://gitlab.com/Karuri/vfio)
 
 ### Enquiries:
-If you need help on this subject matter feel free to reach me on Reddit, username *Danc1ngRasta*. Make sure to follow what is the guide exhaustively before reaching out. 
+If you need help on this subject matter feel free to reach me on Reddit, username *Automatic_Outcome832*. Make sure to follow what is the guide exhaustively before reaching out. 
 
 [//]: # (References)
    [youtube-amd]: <https://www.youtube.com/watch?v=3BxAaaRDEEw>
