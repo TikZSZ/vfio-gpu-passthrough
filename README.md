@@ -423,8 +423,8 @@ So we have been using SCSI disk already but currently its not using the IOThread
     </disk>
 	........
     <controller type="scsi" index="0" model="virtio-scsi">
-		<address type="pci" domain="0x0000" bus="0x07" slot="0x00" function="0x0"/>
 		<driver queues="8" iothread="1"/>
+		<address type="pci" domain="0x0000" bus="0x07" slot="0x00" function="0x0"/>
     </controller>
 ```
 
@@ -479,14 +479,40 @@ The output should be the mode the CPU is running on i.e. "performance" and Hz to
 ### 5.6 Core Isolation
 From [ArchWiki](https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF#Isolating-pinned-CPUs) CPU pinning by itself will not prevent other host processes from running on the pinned CPUs. Properly isolating the pinned CPUs can reduce latency in the guest virtual machine. 
 
-I have included scripts for dynamic [core isolation](scripts/begin/isolate-start.sh) and [de isolation](scripts/end/isolate-revert.sh). Paste them to your hooks folder as we have been doing.
+~~I have included scripts for dynamic [core isolation](scripts/begin/isolate-start.sh) and [de isolation](scripts/end/isolate-revert.sh). Paste them to your hooks folder as we have been doing.~~
 
-For scripts to work you need to add two varaibles to `kvm.conf`
+#### I have now two methods for core-isolation, the new method uses vfio-isolate and is really easy to configure (if u can get it to install properly that is) and then old method that we had before, both are docummneted below.
+
+> To use v1 or v2 method only copy `isolate-start-v2.sh` or `isolate-start-v1.sh` and `isolate-revert-v1.sh` `isolate-revert-v2.sh` in `begin` and `end` folders respectivley
+
+#### V2 
+First copy the [`begin`](scripts/begin/isolate-start-v2.sh) and [`end`](scripts/end/isolate-revert-v2.sh) v2 files in your hooks folder
+
+For scripts to work you need to add 4 varaibles to `kvm.conf`
+
+```sh
+# isolation V2 (vfio-isolate)
+UNDOFILE="/var/run/libvirt/qemu/vfio-isolate-undo.bin"
+HCPUS="0-3,16-23"
+MCPUS="4-15"
+TOTAL_CORES="0-23" ## also used for v1
+```
+> Explanation: `HCPUS` is cores used by host when VM is on, `MCPUS` is core used by vm. `UNDOFILE` is used by vfisolate to revert changes when VM shutsdown
+> In my case i have 24 total cores so total core is 0-23 for me.
+>
+> For my `VM` im pinning 4-15 cores so that means i will have 0-3 and 16-23 cores left for host so thats whats written here.
+
+#### V1
+First copy the [`begin`](scripts/begin/isolate-start-v1.sh) and [`end`](scripts/end/isolate-revert-v1.sh) v1 files in your hooks folder
+
+For scripts to work you need to add 4 varaibles to `kvm.conf`
 
 ```sh
 # /etc/libvirt/hooks/kvm.conf
 TOTAL_CORES='0-23' # total cores in your system
-HOST_CORES='2-3,16-23' # cores to be given to host when VM starts   
+HOST_CORES='0-3,16-23' # cores to be given to host when VM starts   
+TOTAL_CORES_MASK=FFFFFF    # bitmask  these are needed to confiugure writeback polciy its all cores with 1s 
+HOST_CORES_MASK=F0000F     # bitmask these are needed to confiugure writeback polciy its only Host cores are 1s guest cores are 0
 ```
 > Explanation: In my case i have 24 total cores so total core is 0-23 for me.
 >
@@ -497,7 +523,7 @@ Test core isolation while VM is running
 cat /run/systemd/system.control/user.slice.d/50-AllowedCPUs.conf
 ```
 
-~~Note: I personally tired core isolation and i had bad time with it so incase it doesnt work for you, remove the script. Other steps are more crucial than isolation specially if you are running only one guest and not doing anything demanding on host~~.
+~~Note: I personally tired core isolation and i had bad time with it so incase it doesnt work for you, remove the script. Other steps are more crucial than isolation specially if you are running only one guest and not doing anything demanding on host~~. Good performance after using vfio-isolate.
 
 ### 5.7 Enabling invtsc 
 The sections ahead are easier to follow and are minaly configurations for extras.
@@ -509,7 +535,7 @@ I came accross this on [reddit](https://www.reddit.com/r/VFIO/comments/asf3tg/dr
 <cpu mode="host-passthrough" check="none" migratable="off">
     <topology sockets="1" dies="1" cores="6" threads="2"/>
     <cache mode="passthrough"/>
-    Add
+  ## Add the line below
 	<feature policy="require" name="invtsc"/>
 </cpu>
 ```
@@ -528,8 +554,9 @@ I came accross this on [reddit](https://www.reddit.com/r/VFIO/comments/asf3tg/dr
 3. Ensure you're using the tsc in Windows: `bcdedit /set useplatformclock true` (in cmd.exe, does not work in PowerShell)
 
 ## 6 Hyper-V Enlightenments
-I'm utilizing the following Hyper-V enlightments help the Guest OS handle the virtualization tasks. Documentation for what each feature does can be found [here](https://libvirt.org/formatdomain.html#elementsFeatures).
+I'm utilizing the following Hyper-V enlightments help the Guest OS handle the virtualization tasks. Documentation for what each feature does can be found [here](https://libvirt.org/formatdomain.html#elementsFeatures). 
 ```XML
+    ## Paste it inside <features> block just above
     ...
     <hyperv mode="custom">
       <relaxed state="on"/>
